@@ -41,6 +41,18 @@ class SMSManager:
             sms['box'] = box
         return SMS.model_validate(sms)
 
+    def send_sms(self, phone_number: str, text: str):
+
+        response = self.cudy_router.post("admin/network/gcom/sms/smsnew?nomodal=&iface=4g",
+                                         body_multipart= {
+                                             "cbi.submit": "1",
+                                             "cbid.smsnew.1.phone": phone_number,
+                                             "cbid.smsnew.1.content": text,
+                                             "cbid.smsnew.1.send": "Send",
+                                         })
+
+        return response
+
 
 def get_sms_manager(cudy_router: CudyRouter) -> SMSManager:
     return SMSManager(cudy_router)
