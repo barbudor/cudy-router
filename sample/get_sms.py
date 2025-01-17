@@ -28,8 +28,8 @@ for sms in inbox:
 
 print("\nSMS Outbox list")
 outbox = sms_manager.get_sms_list("outbox")
-for sms in inbox:
-    print(f"{sms.index:2}: From: {sms.phone_number}, Received on: {sms.timestamp} (cfg:{sms.cfg})\n    Text: {sms.text}")
+for sms in outbox:
+    print(f"{sms.index:2}: To: {sms.phone_number}, Sent on: {sms.timestamp} (cfg:{sms.cfg})\n    Text: {sms.text}")
 
 print("\nSMS")
 sms = sms_manager.read_sms(outbox[0])
