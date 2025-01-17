@@ -1,0 +1,47 @@
+[project]
+name = "cudy-router"
+version = "0.1.0"
+description = "A library to manage a Cudy router"
+authors = [
+    {name = "Barbudor", email = "barbudor@barbudor.net"},
+]
+dependencies = [
+    "python-dateutil",
+    "requests",
+    "beautifulsoup4",
+    "tzlocal",
+    "pydantic"
+]
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "GPL V3"}
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-clarity",
+    "pytest-cov",
+]
+
+[tool.pdm]
+distribution = true
+
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm.scripts]
+test = "pytest -vv --cov --cov-report=term-missing --cov-report=xml tests/"
+get-sms = "python sample/get_sms.py"
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "cudy_router/",
+    "tests/",
+]
+
+[tool.coverage.run]
+branch = true
+#relative_files = true
+source = ["cudy_router/"]
