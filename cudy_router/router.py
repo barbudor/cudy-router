@@ -1,19 +1,16 @@
 """Provides the backend for a Cudy router"""
 
 from datetime import timedelta
-from typing import Any
-import requests
 import time
 import math
 import logging
 import urllib.parse
 from http.cookies import SimpleCookie
 from hashlib import sha256
+import requests
 import tzlocal
 
-
-from .const import MODULE_DEVICES, MODULE_MODEM
-from .parser import parse_devices, parse_modem_info, parse_login_screen, parse_sms_summary
+from . import cudy_parser
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,10 +23,12 @@ class CudyRouter:
     """Represents a router and provides functions for communication."""
 
     def __init__(
-        self, host: str, username: str, password: str
+        self, host: str, username: str, password: str, port: int = 80,
     ) -> None:
         """Initialize."""
         self.host = host
+        self.port = port
+        self.url = f"http://{self.host}:{self.port}/cgi-bin/luci"
         self.auth_cookie = None
         self.username = username
         self.password = password
@@ -45,8 +44,8 @@ class CudyRouter:
             return ""
 
     def authenticate(self) -> bool:
-        """Test if we can authenticate with the host."""
-        """
+        """ Test if we can authenticate with the host.
+            Extract from Cudy/Luci javascript code:
             $("form").submit(function(e){
                 $("input[name='zonename']").val(Intl.DateTimeFormat().resolvedOptions().timeZone);
                 $("input[name='timeclock']").val(Math.floor((new Date()).getTime() / 1000));
@@ -62,25 +61,27 @@ class CudyRouter:
             });
         """
 
-        data_url = f"http://{self.host}/cgi-bin/luci"
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": ""}
 
         try:
-            response = requests.get(data_url, timeout=30, allow_redirects=False)
-            if response.status_code == 403 and (data := parse_login_screen(response.text)):
+            response = requests.get(self.url, timeout=30, allow_redirects=False)
+            if response.status_code == 403 and (data := cudy_parser.get_login_info(response.text)):
                 encrypted_password = self._encrypt_password(self.password, data['token'], data['salt'])
-
-                body = "&".join([
-                    f"_csrf={data['_csrf']}",
-                    f"token={data['token']}",
-                    f"salt={data['salt']}",
+                params_list = [
                     f"zonename={tzlocal.get_localzone_name()}",
                     f"timeclock={int(math.floor(time.time()/1000))}",
                     f"luci_username={urllib.parse.quote(self.username)}",
                     f"luci_password={urllib.parse.quote(encrypted_password)}",
-                    f"luci_language=en"
-                ])
-                response = requests.post(data_url, timeout=30, headers=headers, data=body, allow_redirects=False)
+                    "luci_language=en"
+                ]
+                if data.get('_csrf'):
+                    params_list.append(f"_csrf={data['_csrf']}")
+                self.token = data.get('token')
+                if self.token:
+                    params_list.append(f"token={data['token']}")
+                if data.get('salt'):
+                    params_list.append(f"salt={data['salt']}")
+                response = requests.post(self.url, timeout=30, headers=headers, data="&".join(params_list), allow_redirects=False)
             else:
                 return False
         except requests.exceptions.ConnectionError:
@@ -111,12 +112,12 @@ class CudyRouter:
         while retries > 0:
             retries -= 1
 
-            data_url = f"http://{self.host}/cgi-bin/luci/{url}"
+            get_url = f"{self.url}/{url}"
             headers = {"Cookie": f"{self.get_cookie_header(False)}"}
 
             try:
                 response = requests.get(
-                    data_url, timeout=30, headers=headers, allow_redirects=False
+                    get_url, timeout=30, headers=headers, allow_redirects=False
                 )
                 if response.status_code == 403:
                     if self.authenticate():
@@ -134,24 +135,34 @@ class CudyRouter:
         _LOGGER.error("Error retrieving data from %s", url)
         return ""
 
-    def get_data(
-        self, device_list = None
-    ) -> dict[str, Any]:
-        """Retrieves data from the router"""
+    def post(self, url: str, body_multipart: dict = None) -> str:
+        """Retrieves data from the given URL using an authenticated session."""
 
-        data: dict[str, Any] = {}
+        retries = 2
+        while retries > 0:
+            retries -= 1
 
-        data[MODULE_MODEM] = parse_modem_info(
-            f"{self.get('admin/network/gcom/status')}{self.get('admin/network/gcom/status?detail=1')}"
-        )
-        data[MODULE_DEVICES] = parse_devices(
-            self.get("admin/network/devices/devlist?detail=1"),
-            device_list,
-        )
+            get_url = f"{self.url}/{url}"
+            headers = {"Cookie": f"{self.get_cookie_header(False)}"}
+            body_multipart["token"] = self.token
+            body_multipart["timeclock"] = int(math.floor(time.time()/1000))
 
-        return data
+            try:
+                response = requests.post(
+                    get_url, timeout=30, files=body_multipart, headers=headers, allow_redirects=False
+                )
+                if response.status_code == 403:
+                    if self.authenticate():
+                        continue
+                    else:
+                        _LOGGER.error("Error during authentication to %s", url)
+                        break
+                if response.ok:
+                    return response.text
+                else:
+                    break
+            except Exception:  # pylint: disable=broad-except
+                pass
 
-    def get_sms_summary(self) -> dict[str, Any]:
-        """Retrieve SMS Summary"""
-
-        return parse_sms_summary(self.get("admin/network/gcom/sms/status"))
+        _LOGGER.error("Error retrieving data from %s", url)
+        return ""
