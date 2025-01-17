@@ -76,7 +76,8 @@ class CudyRouter:
                 ]
                 if data.get('_csrf'):
                     params_list.append(f"_csrf={data['_csrf']}")
-                if data.get('token'):
+                self.token = data.get('token')
+                if self.token:
                     params_list.append(f"token={data['token']}")
                 if data.get('salt'):
                     params_list.append(f"salt={data['salt']}")
@@ -117,6 +118,38 @@ class CudyRouter:
             try:
                 response = requests.get(
                     get_url, timeout=30, headers=headers, allow_redirects=False
+                )
+                if response.status_code == 403:
+                    if self.authenticate():
+                        continue
+                    else:
+                        _LOGGER.error("Error during authentication to %s", url)
+                        break
+                if response.ok:
+                    return response.text
+                else:
+                    break
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        _LOGGER.error("Error retrieving data from %s", url)
+        return ""
+
+    def post(self, url: str, body_multipart: dict = None) -> str:
+        """Retrieves data from the given URL using an authenticated session."""
+
+        retries = 2
+        while retries > 0:
+            retries -= 1
+
+            get_url = f"{self.url}/{url}"
+            headers = {"Cookie": f"{self.get_cookie_header(False)}"}
+            body_multipart["token"] = self.token
+            body_multipart["timeclock"] = int(math.floor(time.time()/1000))
+
+            try:
+                response = requests.post(
+                    get_url, timeout=30, files=body_multipart, headers=headers, allow_redirects=False
                 )
                 if response.status_code == 403:
                     if self.authenticate():

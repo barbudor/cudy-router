@@ -41,5 +41,6 @@ class SMSManager:
             sms['box'] = box
         return SMS.model_validate(sms)
 
+
 def get_sms_manager(cudy_router: CudyRouter) -> SMSManager:
     return SMSManager(cudy_router)
